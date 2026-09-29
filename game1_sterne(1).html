@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⭐ Sternenspiel – Kräfte &amp; Wechselwirkungen</title>
+<style>
+/* ============================================================
+   RESET & BASE
+   ============================================================ */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  font-family: 'Comic Sans MS', 'Comic Neue', cursive, sans-serif;
+  color: #fff;
+  user-select: none;
+  -webkit-user-select: none;
+  background: radial-gradient(ellipse at 50% 48%, #0d1b2a 0%, #050a14 65%, #020408 100%);
+}
+
+/* ============================================================
+   BACKGROUND SKY TWINKLE (tiny dots)
+   ============================================================ */
+.bg-dot {
+  position: absolute;
+  border-radius: 50%;
+  background: #fff;
+  pointer-events: none;
+}
+@keyframes twinkle {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 0.75; }
+}
+
+/* ============================================================
+   INSTRUCTION OVERLAY
+   ============================================================ */
+#overlay {
+  position: fixed; inset: 0;
+  background: rgba(5, 10, 20, 0.94);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  z-index: 1000; cursor: pointer; padding: 2em;
+}
+#overlay h1 {
+  font-size: 2.5em; color: #ffd700;
+  margin-bottom: .4em;
+  text-shadow: 0 0 24px rgba(255,215,0,.65);
+}
+#overlay p {
+  font-size: 1.22em; max-width: 640px;
+  text-align: center; line-height: 1.7; margin: .15em 0;
+}
+#overlay .sub {
+  margin-top: 1.8em; color: #777; font-size: 1em;
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100%{opacity:.45} 50%{opacity:1} }
+
+/* ============================================================
+   HUD  (score, restart, hint)
+   ============================================================ */
+#score-hud {
+  position: fixed; top: 18px; right: 24px;
+  font-size: 1.55em; color: #ffd700;
+  text-shadow: 0 0 12px rgba(255,215,0,.45);
+  z-index: 100; pointer-events: none;
+}
+#restart-btn {
+  position: fixed; top: 18px; left: 24px;
+  padding: 8px 18px;
+  background: rgba(255,215,0,.08);
+  border: 2px solid rgba(255,215,0,.4);
+  color: #ffd700; font-size: 1.05em;
+  font-family: inherit; cursor: pointer;
+  border-radius: 8px; z-index: 500;
+  transition: background .25s, border-color .25s;
+  pointer-events: auto;
+}
+#restart-btn:hover {
+  background: rgba(255,215,0,.22);
+  border-color: #ffd700;
+}
+#hint-bar {
+  position: fixed; bottom: 22px; left: 50%;
+  transform: translateX(-50%);
+  font-size: 1.05em;
+  color: rgba(255,255,255,.35);
+  z-index: 100; pointer-events: none;
+  text-align: center;
+}
+
+/* Game container must sit below HUD */
+#game-container {
+  position: fixed; inset: 0;
+  z-index: 1;
+}
+
+/* ============================================================
+   RESULT FLASH
+   ============================================================ */
+#result {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 2.7em;
+  font-weight: bold;
+  pointer-events: none;
+  z-index: 10000;
+  text-align: center;
+  display: none;
+  padding: .4em .8em;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.75);
+}
+#result.visible {
+  display: block !important;
+}
+#result.ok  { color: #5dff5d; text-shadow: 0 0 28px #3bff3b; }
+#result.bad { color: #ff5555; text-shadow: 0 0 28px #ff3333; }
+
+#result-buttons {
+  display: none;
+  justify-content: center;
+  gap: 18px;
+  margin-top: .6em;
+}
+#result-buttons.show { display: flex; }
+#result-buttons button {
+  font-family: inherit;
+  font-size: .38em;
+  padding: 8px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 2px solid;
+  transition: background .2s;
+}
+#btn-retry {
+  background: rgba(255,85,85,.15);
+  border-color: rgba(255,85,85,.5);
+  color: #ff9999;
+}
+#btn-retry:hover { background: rgba(255,85,85,.35); }
+#btn-newstars {
+  background: rgba(255,215,0,.1);
+  border-color: rgba(255,215,0,.45);
+  color: #ffd700;
+}
+#btn-newstars:hover { background: rgba(255,215,0,.28); }
+
+/* ============================================================
+   STAR ELEMENTS
+   ============================================================ */
+.star-wrap {
+  position: absolute; cursor: grab; z-index: 10;
+  perspective: 500px;            /* 3-D spin context */
+}
+.star-wrap.dragging { cursor: grabbing; z-index: 200; }
+.star-wrap.locked   { cursor: default; pointer-events: none; }
+
+.star-body {
+  width: 100%; height: 100%;
+  transform-style: preserve-3d;
+  backface-visibility: visible;
+  will-change: transform;
+  position: relative;
+}
+
+/* SVG sparkle frames — only the .on frame is visible */
+.star-body svg {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  opacity: 0; pointer-events: none;
+  filter: drop-shadow(0 0 6px rgba(255,215,0,.4));
+  transition: filter .25s;
+}
+.star-body svg.on { opacity: 1; }
+.star-wrap:hover .star-body svg {
+  filter: drop-shadow(0 0 16px rgba(255,215,0,.95));
+}
+
+/* Soft ambient glow behind each star */
+.star-wrap::after {
+  content: '';
+  position: absolute; top: 50%; left: 50%;
+  width: 100%; height: 100%;
+  transform: translate(-50%,-50%) scale(.8);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,215,0,.18) 0%, transparent 70%);
+  pointer-events: none;
+  transition: transform .3s, opacity .3s;
+  opacity: .5;
+}
+.star-wrap:hover::after {
+  transform: translate(-50%,-50%) scale(1.35);
+  opacity: 1;
+}
+</style>
+</head>
+<body>
+
+<!-- ==================== INSTRUCTION OVERLAY ==================== -->
+<div id="overlay">
+  <h1>⭐ Sternenspiel ⭐</h1>
+  <p>Jeder Stern hat einen <strong>geheimen Partner</strong>.</p>
+  <p>Finde heraus, welche Sterne zusammengehören,<br>
+     und ordne sie so an, dass sich ihre Wege<br>
+     <strong>nicht kreuzen</strong>!</p>
+  <p>Drücke die <strong>Leertaste</strong>, wenn du bereit bist.</p>
+  <p style="margin-top:.6em; color:#aaa; font-size:.95em;">Ordne die Sterne richtig an und gewinne!</p>
+  <p class="sub">Klicke irgendwo, um zu starten …</p>
+</div>
+
+<!-- ==================== HUD ==================== -->
+<div id="score-hud">Punkte: 0</div>
+<button id="restart-btn">↻ Neustart</button>
+<div id="hint-bar">Leertaste drücken, um die Sterne loszulassen</div>
+<div id="debug" style="position:fixed;bottom:4px;left:4px;font-size:11px;color:#555;z-index:99999;pointer-events:none;"></div>
+
+<!-- ==================== GAME AREA ==================== -->
+<div id="game-container"></div>
+
+<!-- ==================== RESULT FLASH (must be AFTER game-container to paint on top) ==================== -->
+<div id="result">
+  <div id="result-text"></div>
+  <div id="result-buttons">
+    <button id="btn-retry">↩ Nochmal versuchen</button>
+    <button id="btn-newstars">⭐ Neue Sterne</button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  CONFIGURATION  –  tweak these freely
+// ============================================================
+const CFG = {
+  numStars     : 12,       // must be even
+  starMinSize  : 36,       // px
+  starMaxSize  : 60,       // px
+  spinPerRev   : 0.38,     // seconds for one full 360° revolution
+  spinPause    : 120,      // ms pause between consecutive spins
+  winScore     : 1,        // points needed to win
+  sparkleMs    : 320,      // ms between sparkle-frame swaps
+  moveSpeed    : 220,      // px / second  (pair flight)
+  touchGap     : 12,       // px gap when stars "touch"
+  margin       : 90,       // px inset for placement grid
+  showScore    : true,     // ← toggle the point system on / off
+};
+const NUM_PAIRS  = CFG.numStars / 2;  // 6
+let   gameWon    = false;
+
+// ============================================================
+//  DOM REFS
+// ============================================================
+const $container  = document.getElementById('game-container');
+const $overlay    = document.getElementById('overlay');
+const $scoreHud   = document.getElementById('score-hud');
+const $restartBtn = document.getElementById('restart-btn');
+const $hintBar    = document.getElementById('hint-bar');
+const $result     = document.getElementById('result');
+const $resultText = document.getElementById('result-text');
+const $resultBtns = document.getElementById('result-buttons');
+const $btnRetry   = document.getElementById('btn-retry');
+const $btnNew     = document.getElementById('btn-newstars');
+const $debug      = document.getElementById('debug');
+function dbg(msg) { $debug.textContent = msg; console.log(msg); }
+
+// ============================================================
+//  STATE
+// ============================================================
+let stars       = [];
+let score       = 0;
+let roundSolved = false;
+let animating   = false;
+let overlayOpen = true;
+let sparkleIds  = [];
+let dragTarget  = null;
+let dragOfsX    = 0;
+let dragOfsY    = 0;
+let _rafId      = null;   // track requestAnimationFrame
+let _resultTid  = null;   // track showResult restore timeout
+let _resultTid2 = null;   // track showResult call timeout
+
+// ============================================================
+//  SMALL HELPERS
+// ============================================================
+const rand  = (lo, hi) => Math.random() * (hi - lo) + lo;
+const randI = (lo, hi) => Math.floor(rand(lo, hi + 1));
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = randI(0, i);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// ============================================================
+//  HAND-DRAWN STAR SVG   (wobbly 5-pointed polygon)
+// ============================================================
+function starPath(cx, cy, outerR, innerR, arms, wob) {
+  const n = arms * 2;
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const base  = i % 2 === 0 ? outerR : innerR;
+    const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+    const r = base + (Math.random() - 0.5) * wob;
+    const a = angle + (Math.random() - 0.5) * 0.14;
+    pts.push(`${(cx + Math.cos(a) * r).toFixed(1)},${(cy + Math.sin(a) * r).toFixed(1)}`);
+  }
+  return 'M' + pts.join('L') + 'Z';
+}
+
+function makeSVG(size, hue, lightness) {
+  const cx = size / 2, cy = size / 2;
+  const oR = size * 0.43, iR = oR * 0.38, wob = size * 0.07;
+  const NS = 'http://www.w3.org/2000/svg';
+
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
+
+  const p = document.createElementNS(NS, 'path');
+  p.setAttribute('d', starPath(cx, cy, oR, iR, 5, wob));
+  p.setAttribute('fill',   `hsl(${hue},88%,${lightness}%)`);
+  p.setAttribute('stroke', `hsl(${hue},60%,${Math.max(lightness - 18, 22)}%)`);
+  p.setAttribute('stroke-width', rand(1.8, 3.2).toFixed(1));
+  p.setAttribute('stroke-linejoin', 'round');
+  p.setAttribute('stroke-linecap',  'round');
+  svg.appendChild(p);
+  return svg;
+}
+
+// ============================================================
+//  PLACEMENT  (grid cells + random jitter → even spacing)
+// ============================================================
+function placementPositions(n, W, H, m) {
+  const cols = Math.ceil(Math.sqrt(n * W / H));
+  const rows = Math.ceil(n / cols);
+  const cw = (W - 2 * m) / cols;
+  const ch = (H - 2 * m) / rows;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const c = i % cols, r = Math.floor(i / cols);
+    out.push({
+      x: m + c * cw + rand(cw * 0.2, cw * 0.8),
+      y: m + r * ch + rand(ch * 0.2, ch * 0.8),
+    });
+  }
+  return shuffle(out).slice(0, n);
+}
+
+// ============================================================
+//  PAIR NUMBERS  [1,1,2,2, … ,6,6] shuffled
+// ============================================================
+function makePairNums(n) {
+  const a = [];
+  for (let i = 1; i <= n / 2; i++) a.push(i, i);
+  return shuffle(a);
+}
+
+// ============================================================
+//  SEGMENT INTERSECTION  (for crossing check)
+// ============================================================
+function cross2(o, a, b) {
+  return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+}
+function onSeg(p, q, r) {
+  return r.x <= Math.max(p.x, q.x) && r.x >= Math.min(p.x, q.x) &&
+         r.y <= Math.max(p.y, q.y) && r.y >= Math.min(p.y, q.y);
+}
+function segsIntersect(a1, a2, b1, b2) {
+  const d1 = cross2(b1, b2, a1), d2 = cross2(b1, b2, a2);
+  const d3 = cross2(a1, a2, b1), d4 = cross2(a1, a2, b2);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+      ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+  if (d1 === 0 && onSeg(b1, b2, a1)) return true;
+  if (d2 === 0 && onSeg(b1, b2, a2)) return true;
+  if (d3 === 0 && onSeg(a1, a2, b1)) return true;
+  if (d4 === 0 && onSeg(a1, a2, b2)) return true;
+  return false;
+}
+function anyPairCrossing(segments) {
+  for (let i = 0; i < segments.length; i++)
+    for (let j = i + 1; j < segments.length; j++)
+      if (segsIntersect(segments[i][0], segments[i][1],
+                        segments[j][0], segments[j][1]))
+        return true;
+  return false;
+}
+
+// ============================================================
+//  DECORATIVE BACKGROUND SKY
+// ============================================================
+function buildSky() {
+  $container.querySelectorAll('.bg-dot').forEach(d => d.remove());
+  const W = innerWidth, H = innerHeight;
+  for (let i = 0; i < 100; i++) {
+    const d = document.createElement('div');
+    d.className = 'bg-dot';
+    const s = rand(1, 2.6);
+    Object.assign(d.style, {
+      width: s + 'px', height: s + 'px',
+      left: rand(0, W) + 'px', top: rand(0, H) + 'px',
+      opacity: rand(0.15, 0.55),
+      animation: `twinkle ${rand(2, 6).toFixed(1)}s ease-in-out ${rand(0, 4).toFixed(1)}s infinite`,
+    });
+    $container.appendChild(d);
+  }
+}
+
+// ============================================================
+//  INIT / NEW ROUND
+// ============================================================
+function forceStopAnimation() {
+  if (_rafId)      { cancelAnimationFrame(_rafId); _rafId = null; }
+  if (_resultTid)  { clearTimeout(_resultTid);  _resultTid = null; }
+  if (_resultTid2) { clearTimeout(_resultTid2); _resultTid2 = null; }
+  $result.className = '';
+  animating = false;
+}
+
+function initRound() {
+  // force-cancel any in-flight animation / timeout
+  forceStopAnimation();
+
+  // clean up previous round
+  stars.forEach(s => {
+    if (s.spinAnim) { s.spinAnim.cancel(); s.spinAnim = null; }
+    s.el.remove();
+  });
+  sparkleIds.forEach(id => clearInterval(id));
+  stars = []; sparkleIds = [];
+  animating = false;
+  roundSolved = false;
+  dragTarget = null;
+
+  const W = innerWidth, H = innerHeight;
+  const positions = placementPositions(CFG.numStars, W, H, CFG.margin);
+  const pairNums  = makePairNums(CFG.numStars);
+
+  for (let i = 0; i < CFG.numStars; i++) {
+    const sz   = rand(CFG.starMinSize, CFG.starMaxSize);
+    const hue  = rand(36, 56);   // golden range
+    const lit  = rand(58, 78);
+
+    // --- 3 sparkle frames (slightly different wobble + brightness) ---
+    const frames = [0, 1, 2].map(v => {
+      const svg = makeSVG(sz, hue, lit + (v - 1) * 7);
+      if (v === 0) svg.classList.add('on');
+      return svg;
+    });
+
+    // --- DOM ---
+    const wrap = document.createElement('div');
+    wrap.className = 'star-wrap';
+    wrap.style.width  = sz + 'px';
+    wrap.style.height = sz + 'px';
+    wrap.style.left = (positions[i].x - sz / 2) + 'px';
+    wrap.style.top  = (positions[i].y - sz / 2) + 'px';
+
+    const body = document.createElement('div');
+    body.className = 'star-body';
+    frames.forEach(f => body.appendChild(f));
+    wrap.appendChild(body);
+    $container.appendChild(wrap);
+
+    const star = {
+      el: wrap, body, frames,
+      size: sz,
+      pairNum: pairNums[i],
+      x: positions[i].x,
+      y: positions[i].y,
+      curFrame: 0,
+      spinning: false,
+      spinAnim: null,
+    };
+    stars.push(star);
+
+    // --- sparkle cycle ---
+    const sid = setInterval(() => {
+      if (star.spinning) return;
+      star.frames[star.curFrame].classList.remove('on');
+      star.curFrame = (star.curFrame + 1) % 3;
+      star.frames[star.curFrame].classList.add('on');
+    }, CFG.sparkleMs + rand(-40, 40));
+    sparkleIds.push(sid);
+
+    // --- hover → 3-D spin ---
+    wrap.addEventListener('mouseenter', () => {
+      if (animating || dragTarget || star.spinning) return;
+      triggerSpin(star);
+    });
+  }
+
+  updateHud();
+}
+
+// ============================================================
+//  HUD UPDATE
+// ============================================================
+function updateHud() {
+  $scoreHud.textContent = 'Punkte: ' + score + ' / ' + CFG.winScore;
+  $scoreHud.style.display = CFG.showScore ? '' : 'none';
+}
+
+// ============================================================
+//  DRAG & DROP  (mousedown on container, move/up on window)
+// ============================================================
+function starFromEl(el) {
+  return stars.find(s => s.el === el || s.el.contains(el));
+}
+
+$container.addEventListener('mousedown', e => {
+  if (animating || overlayOpen) return;
+  const s = starFromEl(e.target);
+  if (!s) return;
+  e.preventDefault();
+  dragTarget = s;
+  s.el.classList.add('dragging');
+  const r = s.el.getBoundingClientRect();
+  dragOfsX = e.clientX - r.left;
+  dragOfsY = e.clientY - r.top;
+});
+
+window.addEventListener('mousemove', e => {
+  if (!dragTarget) return;
+  const nx = e.clientX - dragOfsX;
+  const ny = e.clientY - dragOfsY;
+  dragTarget.el.style.left = nx + 'px';
+  dragTarget.el.style.top  = ny + 'px';
+  dragTarget.x = nx + dragTarget.size / 2;
+  dragTarget.y = ny + dragTarget.size / 2;
+});
+
+window.addEventListener('mouseup', () => {
+  if (dragTarget) {
+    dragTarget.el.classList.remove('dragging');
+    dragTarget = null;
+  }
+});
+
+// ============================================================
+//  3-D SPIN  (Web Animations API — rotateY with pauses)
+// ============================================================
+function triggerSpin(s) {
+  if (s.spinning) return;
+  s.spinning = true;
+
+  const n       = s.pairNum;                         // 1 – 6
+  const spinMs  = CFG.spinPerRev * 1000;             // ms per revolution
+  const pauseMs = CFG.spinPause;                     // ms pause between revs
+  const totalMs = n * spinMs + Math.max(0, n - 1) * pauseMs;
+
+  // Build keyframes: each revolution has ease-in-out, then a flat pause
+  const kf = [];
+  for (let i = 0; i < n; i++) {
+    const tStart = (i * (spinMs + pauseMs)) / totalMs;
+    const tEnd   = tStart + spinMs / totalMs;
+
+    if (i === 0) {
+      kf.push({ transform: 'rotateY(0deg)',              offset: 0,      easing: 'ease-in-out' });
+    }
+    kf.push({   transform: `rotateY(${(i + 1) * 360}deg)`, offset: Math.min(tEnd, 1) });
+
+    // pause → also serves as anchor for next revolution's easing
+    if (i < n - 1) {
+      const tPauseEnd = tEnd + pauseMs / totalMs;
+      kf.push({ transform: `rotateY(${(i + 1) * 360}deg)`, offset: tPauseEnd, easing: 'ease-in-out' });
+    }
+  }
+
+  const anim = s.body.animate(kf, { duration: totalMs, fill: 'forwards' });
+  s.spinAnim = anim;
+
+  anim.onfinish = () => {
+    anim.cancel();
+    s.body.style.transition = 'none';
+    s.body.style.transform  = 'rotateY(0deg)';
+    s.spinning  = false;
+    s.spinAnim  = null;
+  };
+  // safety fallback
+  setTimeout(() => { if (s.spinning && s.spinAnim === anim) anim.onfinish(); }, totalMs + 300);
+}
+
+// ============================================================
+//  SPACEBAR  →  LAUNCH PAIRS
+// ============================================================
+window.addEventListener('keydown', e => {
+  if (!(e.code === 'Space' || e.key === ' ')) return;
+  if (animating || overlayOpen || gameWon) return;
+  e.preventDefault();
+  launchPairs();
+});
+
+function gatherPairs() {
+  const map = {};
+  stars.forEach(s => (map[s.pairNum] = map[s.pairNum] || []).push(s));
+  return Object.values(map);  // [ [starA, starB], … ]
+}
+
+function launchPairs() {
+  animating = true;
+  stars.forEach(s => s.el.classList.add('locked'));
+
+  // save positions for restore later
+  stars.forEach(s => { s._sx = s.x; s._sy = s.y; });
+
+  const pairs = gatherPairs();
+
+  // geometric crossing check (center-to-center segments)
+  const segs = pairs.map(([a, b]) => [{ x: a.x, y: a.y }, { x: b.x, y: b.y }]);
+  const crossed = anyPairCrossing(segs);
+
+  // animation data
+  const anim = pairs.map(([a, b]) => ({
+    a, b,
+    ax: a.x, ay: a.y,
+    bx: b.x, by: b.y,
+    done: false,
+  }));
+
+  let prev = null;
+
+  function tick(ts) {
+    if (prev === null) prev = ts;
+    const dt  = Math.min((ts - prev) / 1000, 0.06);
+    prev = ts;
+    let allDone = true;
+
+    anim.forEach(p => {
+      if (p.done) return;
+      const dx = p.bx - p.ax, dy = p.by - p.ay;
+      const dist = Math.hypot(dx, dy);
+      const minD = (p.a.size + p.b.size) / 2 + CFG.touchGap;
+      if (dist <= minD + 1) { p.done = true; return; }
+      allDone = false;
+      const step = Math.min(CFG.moveSpeed * dt, dist - minD);
+      const ux = dx / dist, uy = dy / dist;
+      p.ax += ux * step;  p.ay += uy * step;
+      p.bx -= ux * step;  p.by -= uy * step;
+      setPos(p.a, p.ax, p.ay);
+      setPos(p.b, p.bx, p.by);
+    });
+
+    if (!allDone) { _rafId = requestAnimationFrame(tick); return; }
+
+    // all pairs have met → show result after a brief beat
+    _rafId = null;
+    dbg('[tick] allDone, crossed=' + crossed);
+    _resultTid2 = setTimeout(() => showResult(crossed), 350);
+  }
+
+  _rafId = requestAnimationFrame(tick);
+}
+
+function setPos(s, x, y) {
+  s.x = x; s.y = y;
+  s.el.style.left = (x - s.size / 2) + 'px';
+  s.el.style.top  = (y - s.size / 2) + 'px';
+}
+
+// ============================================================
+//  ANIMATE STARS BACK  (smooth rewind to saved positions)
+// ============================================================
+function animateStarsBack() {
+  animating = true;
+  stars.forEach(s => s.el.classList.add('locked'));
+
+  const data = stars.map(s => ({
+    s,
+    sx: s.x, sy: s.y,       // current (post-flight)
+    tx: s._sx, ty: s._sy,   // target (pre-flight)
+  }));
+
+  const durationMs = 800;
+  let start = null;
+
+  function ease(t) {
+    // ease-in-out cubic
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  }
+
+  function tick(ts) {
+    if (start === null) start = ts;
+    const elapsed = ts - start;
+    const t = Math.min(elapsed / durationMs, 1);
+    const e = ease(t);
+
+    data.forEach(d => {
+      const nx = d.sx + (d.tx - d.sx) * e;
+      const ny = d.sy + (d.ty - d.sy) * e;
+      setPos(d.s, nx, ny);
+    });
+
+    if (t < 1) {
+      _rafId = requestAnimationFrame(tick);
+    } else {
+      _rafId = null;
+      stars.forEach(s => s.el.classList.remove('locked'));
+      animating = false;
+    }
+  }
+
+  _rafId = requestAnimationFrame(tick);
+}
+
+// ============================================================
+//  RESULT DISPLAY  →  then restore positions
+// ============================================================
+function showResult(crossed) {
+  dbg('[showResult] crossed=' + crossed + ' roundSolved=' + roundSolved + ' score=' + score);
+
+  if (!crossed) {
+    // SUCCESS
+    if (!roundSolved) {
+      score++; roundSolved = true; updateHud();
+    }
+    if (score >= CFG.winScore) {
+      showWinScreen(); return;
+    }
+    $resultText.textContent = '✓ Geschafft!  +1 Punkt';
+    $resultBtns.className = '';
+    $result.className = 'visible ok';
+    $result.style.pointerEvents = 'none';
+
+    _resultTid = setTimeout(() => {
+      $result.className = '';
+      stars.forEach(s => {
+        setPos(s, s._sx, s._sy);
+        s.el.classList.remove('locked');
+      });
+      animating = false;
+      _resultTid = null;
+    }, 2200);
+
+  } else {
+    // FAILURE — paths crossed — show choice buttons
+    $resultText.textContent = '✗ Wege haben sich gekreuzt!';
+    $resultBtns.className = 'show';
+    $result.className = 'visible bad';
+    $result.style.pointerEvents = 'auto';
+
+    // DON'T snap stars back yet — leave them touching so the pairing is visible.
+    // Unlock after a beat so the buttons become clickable.
+    _resultTid = setTimeout(() => {
+      animating = false;
+      _resultTid = null;
+    }, 1200);
+  }
+}
+
+function showWinScreen() {
+  console.log('[showWinScreen] score =', score);
+  gameWon = true;
+  $resultText.innerHTML = '\ud83c\udf89 Gewonnen! \ud83c\udf89<br><span style="font-size:.55em">Dr\u00fccke \u201eNeustart\u201c f\u00fcr eine neue Runde.</span>';
+  $resultBtns.className = '';
+  $result.className = 'visible ok';
+  $result.style.pointerEvents = 'none';
+  setTimeout(() => {
+    stars.forEach(s => s.el.classList.remove('locked'));
+    animating = false;
+  }, 600);
+}
+
+// ============================================================
+//  RETRY / NEW STARS BUTTONS (on failure)
+// ============================================================
+$btnRetry.addEventListener('pointerdown', (e) => {
+  e.preventDefault(); e.stopPropagation();
+  // dismiss message, animate stars back to pre-flight positions
+  $result.className = '';
+  $resultBtns.className = '';
+  $result.style.pointerEvents = 'none';
+  animateStarsBack();
+});
+$btnNew.addEventListener('pointerdown', (e) => {
+  e.preventDefault(); e.stopPropagation();
+  // full new round
+  $result.className = '';
+  $resultBtns.className = '';
+  $result.style.pointerEvents = 'none';
+  initRound();
+});
+
+// ============================================================
+//  RESTART BUTTON
+// ============================================================
+function doRestart() {
+  forceStopAnimation();
+  $resultBtns.className = '';
+  $result.style.pointerEvents = 'none';
+  if (gameWon) {
+    score = 0; gameWon = false;
+    $result.className = '';
+    updateHud();
+  }
+  initRound();
+}
+$restartBtn.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  doRestart();
+});
+$restartBtn.addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+});
+$restartBtn.addEventListener('mousedown', (e) => {
+  e.stopPropagation();
+});
+
+// ============================================================
+//  OVERLAY → dismiss on click
+// ============================================================
+$overlay.addEventListener('click', () => {
+  $overlay.style.display = 'none';
+  overlayOpen = false;
+});
+
+// ============================================================
+//  BOOT
+// ============================================================
+buildSky();
+initRound();
+</script>
+</body>
+</html>
